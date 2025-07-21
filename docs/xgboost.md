@@ -1,32 +1,3 @@
-# stock-price-prediction
-
-# Stock Price Prediction Using Machine Learning
-
-This repository contains code for predicting stock prices using various machine learning algorithms in Python. The project demonstrates how to preprocess data, train different models, and evaluate their performance.
-
-## Features
-
-- Data preprocessing and feature engineering
-- Implementation of multiple machine learning algorithms
-- Model evaluation metrics
-- Visualization of results
-
-## Requirements
-
-Make sure you have the following libraries installed:
-
-```bash
-pip install pandas numpy scikit-learn matplotlib seaborn
-```
-
-## Usage
-
-1. Clone the repository:
-   ```bash
-   git clone
-   stock price prediction using different machine learning algorithms using python
-   ```
-
 # XGBoost Stock Price Prediction Pipeline
 
 This repository contains a comprehensive, end-to-end pipeline for predicting stock prices using an XGBoost model. The pipeline is designed with best practices for time-series forecasting, including feature engineering, hyperparameter tuning, and robust evaluation.
@@ -96,12 +67,12 @@ The following plots summarize the model's performance on the test data.
 **Main Performance Dashboard**
 This plot shows the actual vs. predicted prices, feature importance, residuals, and error over time.
 
-![Model Performance](docs/images/xgboost_feature_eng.png)
+![Model Performance](images/xgboost_feature_eng.png)
 
 **Trading Simulation**
 This plot compares the cumulative returns of the model's strategy against a buy-and-hold strategy.
 
-![Trading Simulation](docs/images/xgboost_trading_simulator.png)
+![Trading Simulation](images/xgboost_trading_simulator.png)
 
 ### Future Predictions
 
@@ -126,3 +97,4 @@ Based on the data available up to July 18, 2025, here are the price predictions 
     python XGBoost.py
     ```
     You can customize the stock symbol, data period, and other parameters inside the `if __name__ == "__main__":` block in `XGBoost.py`.
+
