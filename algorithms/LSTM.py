@@ -560,7 +560,7 @@ class LSTMStockPredictor:
             logger.error(f"Error in model evaluation: {str(e)}")
             raise
 
-    def visualize_results(self, save_path=None):
+    def visualize_results(self, save_path='lstm_visualization.png'):
         """
         Create visualizations for model results.
         
@@ -571,6 +571,15 @@ class LSTMStockPredictor:
         """
         try:
             logger.info("Creating visualizations...")
+            
+            # Check if we have test_dates attribute, if not, create it
+            if not hasattr(self, 'test_dates'):
+                if hasattr(self, 'featured_data') and self.featured_data is not None:
+                    test_size = int(len(self.featured_data) * self.test_size)
+                    self.test_dates = self.featured_data.index[-test_size:]
+                else:
+                    # If we can't determine test_dates, use a range as fallback
+                    self.test_dates = pd.date_range(end=datetime.now(), periods=len(self.y_test_orig))
 
             # Create a figure with subplots
             fig = plt.figure(figsize=(20, 15))
@@ -713,7 +722,13 @@ class LSTMStockPredictor:
             plt.legend(fontsize=12)
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
-            plt.savefig('lstm_trading_simulation.png')
+            
+            # Create visualization directory if needed
+            os.makedirs('visualizations', exist_ok=True)
+            save_path = os.path.join('visualizations', f'lstm_trading_simulation_{self.symbol}.png')
+            plt.savefig(save_path)
+            logger.info(f"Trading simulation plot saved to {save_path}")
+            
             plt.show()
 
             # Calculate some trading statistics
@@ -849,7 +864,19 @@ class LSTMStockPredictor:
             
             # Scale the features
             if self.scaler:
-                X_latest = self.scaler.transform(X_latest)
+                try:
+                    X_latest = self.scaler.transform(X_latest)
+                except ValueError as e:
+                    # Handle dimension mismatch by making features match the expected dimensions
+                    logger.warning(f"Dimension mismatch: {e}")
+                    logger.info(f"Feature shapes - Expected: {self.scaler.n_features_in_}, Got: {X_latest.shape[1]}")
+                    
+                    # If we have more features than expected, trim
+                    if X_latest.shape[1] > self.scaler.n_features_in_:
+                        logger.info(f"Trimming features from {X_latest.shape[1]} to {self.scaler.n_features_in_}")
+                        # Keep only the first n_features_in_ columns
+                        X_latest = X_latest[:, :self.scaler.n_features_in_]
+                        X_latest = self.scaler.transform(X_latest)
                 
             # Reshape for LSTM input
             X_latest = X_latest.reshape(1, self.window_size, X_latest.shape[1])
@@ -901,10 +928,51 @@ class LSTMStockPredictor:
             predictions_df.set_index('Date', inplace=True)
             
             logger.info("Future predictions complete")
-            return predictions_df
+            
+            # Return both DataFrame and list format for flexibility
+            pred_list = predictions_df['Predicted_Close'].values
+            return pred_list if len(pred_list) == days else pred_list[:days]
             
         except Exception as e:
             logger.error(f"Error in future prediction: {str(e)}")
+            raise
+
+    def get_future_dates(self, days=5):
+        """
+        Generate future dates for predictions.
+        
+        Parameters:
+        -----------
+        days : int
+            Number of days to generate
+            
+        Returns:
+        --------
+        list
+            List of future dates (as datetime objects) excluding weekends
+        """
+        try:
+            # Start from the latest date in the data or current date if no data
+            if self.data is not None and not self.data.empty:
+                last_date = self.data.index[-1]
+            else:
+                last_date = pd.Timestamp.now()
+                
+            future_dates = []
+            current_date = last_date
+            
+            while len(future_dates) < days:
+                # Move to next day
+                current_date = current_date + pd.Timedelta(days=1)
+                
+                # Skip weekends (5 = Saturday, 6 = Sunday)
+                if current_date.weekday() < 5:
+                    future_dates.append(current_date)
+                    
+            return future_dates
+            
+        except Exception as e:
+            logger.error(f"Error generating future dates: {str(e)}")
             raise
 
     def run_pipeline(self, window_size=60, epochs=50, batch_size=32, patience=10,
@@ -957,10 +1025,15 @@ class LSTMStockPredictor:
             
             # Step 6: Visualize results (if requested)
             if visualize:
-                self.visualize_results(save_path='lstm_performance.png')
+                # Create visualization directory if needed
+                os.makedirs('visualizations', exist_ok=True)
+                save_path = os.path.join('visualizations', f'lstm_training_history_{self.symbol}.png')
+                self.visualize_results(save_path=save_path)
             
             # Step 7: Save model (if requested)
             if save_model:
+                # Create models directory if needed
+                os.makedirs('models', exist_ok=True)
                 self.save_model(model_path='models/lstm_stock_model.h5',
                               pipeline_path=f'models/{self.symbol}_lstm_pipeline.joblib')
             

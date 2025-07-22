@@ -17,6 +17,11 @@ The Transformer model is a neural network architecture that relies on attention 
 - **Parallelization**: More efficient training compared to recurrent models
 - **Positional Encoding**: Maintains sequence order information
 - **Multi-Head Attention**: Allows the model to focus on different parts of the input sequence
+- **Dimension Mismatch Handling**:
+  - Automatically detects when input features don't match training features
+  - Trims excess features when necessary
+  - Retrains the scaler when receiving fewer features than expected
+  - Provides detailed logging of dimension adjustments
 
 ## Architecture
 

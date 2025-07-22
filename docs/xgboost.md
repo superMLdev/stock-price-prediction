@@ -11,6 +11,10 @@ This repository contains a comprehensive, end-to-end pipeline for predicting sto
   - Rolling means and momentum indicators
   - Technical indicators (RSI, MACD, Bollinger Bands, etc.)
   - Time-based features (day of week, month, year)
+- **Dimension Mismatch Handling**: Automatically detects and handles feature count mismatches:
+  - Trims excess features when input data has more features than the model was trained with
+  - Provides robust error handling with detailed logging
+  - Ensures models can make predictions even when feature dimensions change
 - **Hyperparameter Tuning**: Uses Optuna with `TimeSeriesSplit` for robust hyperparameter optimization.
 - **Time-Series Aware Splitting**: Ensures the train-test split is done chronologically, without shuffling.
 - **Advanced Evaluation**:

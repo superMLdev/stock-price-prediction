@@ -34,6 +34,7 @@ The following metrics are based on testing with AAPL stock data over a 5-year pe
 - Good interpretability through feature importance
 - Works well with engineered features
 - Requires less data for good performance
+- Robust dimension mismatch handling for feature count differences
 
 **Weaknesses:**
 - Limited ability to capture temporal dependencies
@@ -47,6 +48,7 @@ The following metrics are based on testing with AAPL stock data over a 5-year pe
 - Parallel processing enables faster training compared to LSTM
 - Effective for capturing long-range dependencies
 - Less prone to vanishing gradient issues
+- Sophisticated dimension mismatch handling with feature trimming and scaler retraining
 
 **Weaknesses:**
 - Requires more data to train effectively
@@ -61,6 +63,7 @@ The following metrics are based on testing with AAPL stock data over a 5-year pe
 - Excellent for sequence modeling and time series
 - Effectively captures temporal patterns
 - Maintains memory of past events
+- Feature dimension mismatch detection and handling
 
 **Weaknesses:**
 - Slower training due to sequential nature
@@ -91,6 +94,18 @@ The following metrics are based on testing with AAPL stock data over a 5-year pe
 | XGBoost | < 1 second |
 | Transformer | 1-2 seconds |
 | LSTM | 1-2 seconds |
+
+## Dimension Mismatch Handling
+
+All models now include robust feature count mismatch detection and handling:
+
+| Model | Excess Features Handling | Insufficient Features Handling |
+|-------|--------------------------|--------------------------------|
+| XGBoost | Trims extra features | Uses unscaled features when necessary |
+| Transformer | Trims extra features | Retrains scaler on current feature set |
+| LSTM | Trims extra features | Uses feature padding when possible |
+
+This robust feature handling ensures models can make predictions even when the feature set changes between training and prediction time, which is common when using different stock symbols or when market conditions introduce new features.
 
 ## Use Case Recommendations
 

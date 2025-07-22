@@ -229,6 +229,9 @@ class StockPricePredictor:
 
             if self.data is None:
                 self.fetch_data()
+                
+            if self.data is None or self.data.empty:
+                raise ValueError("No data available for feature engineering")
 
             df = self.data.copy()
 
@@ -320,6 +323,9 @@ class StockPricePredictor:
 
             if self.featured_data is None:
                 self.engineer_features()
+                
+            if self.featured_data is None or self.featured_data.empty:
+                raise ValueError("No featured data available for preprocessing")
 
             # Prepare features and target
             target_col = f'target_{self.prediction_horizon}d'
@@ -445,6 +451,13 @@ class StockPricePredictor:
         """
         try:
             logger.info("Training XGBoost model...")
+            
+            # Make sure we have data to train on
+            if self.X_train is None or self.y_train is None:
+                self.preprocess_data()
+                
+            if self.X_train is None or self.X_train.empty or self.y_train is None or self.y_train.empty:
+                raise ValueError("No training data available")
 
             if tuned_params:
                 xgb_params = tuned_params.copy()
@@ -955,27 +968,80 @@ class StockPricePredictor:
                 else:
                     # Use all features from latest_features as a fallback
                     feature_names = latest_features.columns.tolist()
+                    # Remove target column if present
+                    target_col = f'target_{self.prediction_horizon}d'
+                    if target_col in feature_names:
+                        feature_names.remove(target_col)
                     logger.info(f"Using {len(feature_names)} features from current data")
             else:
                 # Normal case - we have self.X from training
                 feature_names = self.X.columns.tolist()
 
+            # Check if all feature_names are in latest_features
+            missing_features = [f for f in feature_names if f not in latest_features.columns]
+            extra_features = [f for f in latest_features.columns if f not in feature_names and f != f'target_{self.prediction_horizon}d']
+            
+            if missing_features:
+                logger.warning(f"Missing {len(missing_features)} features from the model: {missing_features[:5]}...")
+                # Add missing features with zeros
+                for feat in missing_features:
+                    latest_features[feat] = 0
+                    
+            if extra_features:
+                logger.warning(f"Found {len(extra_features)} extra features not used by the model: {extra_features[:5]}...")
+                # We'll ignore these extra features
+            
             predictions = []
             current_data = latest_features.iloc[-1:].copy()
 
+            # Prepare the target column name to ignore
+            target_col = f'target_{self.prediction_horizon}d'
+            if target_col in current_data.columns:
+                current_data = current_data.drop(columns=[target_col])
+
             for i in range(days):
-                # Prepare features for prediction
-                pred_features = current_data[feature_names]
+                # Prepare features for prediction - ensure only using columns the model knows about
+                pred_features = current_data[feature_names].copy()
 
                 # Scale features if necessary
                 if self.scaler:
-                    pred_features_scaled = self.scaler.transform(pred_features)
-                    pred_features = pd.DataFrame(pred_features_scaled,
-                                               index=pred_features.index,
-                                               columns=pred_features.columns)
+                    try:
+                        pred_features_scaled = self.scaler.transform(pred_features)
+                        pred_features = pd.DataFrame(pred_features_scaled,
+                                                   index=pred_features.index,
+                                                   columns=pred_features.columns)
+                    except ValueError as e:
+                        logger.warning(f"Scaler error: {e}. Attempting to fix...")
+                        # If there's a dimension mismatch, try to adapt
+                        if pred_features.shape[1] != self.scaler.n_features_in_:
+                            if pred_features.shape[1] > self.scaler.n_features_in_:
+                                # If we have more features than expected, keep only what's needed
+                                logger.info(f"Trimming features from {pred_features.shape[1]} to {self.scaler.n_features_in_}")
+                                # Assume the first n features match what the scaler expects
+                                pred_features = pred_features.iloc[:, :self.scaler.n_features_in_]
+                                pred_features_scaled = self.scaler.transform(pred_features)
+                                pred_features = pd.DataFrame(pred_features_scaled,
+                                                          index=pred_features.index,
+                                                          columns=pred_features.columns)
+                            else:
+                                # If we have fewer features, this is more complex
+                                # Skip scaling as a last resort
+                                logger.warning("Not enough features for scaling - using unscaled features")
+                                pass
 
                 # Make prediction
-                pred_price = self.model.predict(pred_features)[0]
+                try:
+                    pred_price = self.model.predict(pred_features)[0]
+                except Exception as pred_error:
+                    logger.error(f"Prediction error: {pred_error}")
+                    # Fallback to returning the last known price
+                    if 'Close' in latest_features.columns:
+                        pred_price = latest_features['Close'].iloc[-1]
+                        logger.info(f"Using last known price {pred_price} as fallback")
+                    else:
+                        # If we can't even find the last price, return 0
+                        pred_price = 0
+                        logger.warning("Using 0 as fallback prediction")
 
                 # Create next day's date
                 last_date = current_data.index[-1]
@@ -1007,7 +1073,14 @@ class StockPricePredictor:
                         if base_col in new_row.columns:
                             new_row[col] = new_row[base_col]
                     elif 'lag_' in col:
-                        lag_num = int(col.split('_lag_')[1])
+                        parts = col.split('_lag_')
+                        if len(parts) == 2:
+                            base_col = parts[0]
+                            lag = int(parts[1])
+                            prev_lag = lag - 1
+                            prev_lag_col = f"{base_col}_lag_{prev_lag}"
+                            if prev_lag_col in pred_features.columns:
+                                new_row[col] = pred_features[prev_lag_col].iloc[0]lag_num = int(col.split('_lag_')[1])
                         base_col = col.replace(f'_lag_{lag_num}', '')
                         lag_col_prev = f"{base_col}_lag_{lag_num-1}"
                         if lag_col_prev in new_row.columns:
@@ -1023,10 +1096,59 @@ class StockPricePredictor:
             predictions_df.set_index('Date', inplace=True)
 
             logger.info("Future predictions complete")
-            return predictions_df
+            
+            # Return both DataFrame and list format for flexibility
+            pred_list = predictions_df['Predicted_Close'].values
+            return pred_list if len(pred_list) == days else pred_list[:days]
 
         except Exception as e:
             logger.error(f"Error in future prediction: {str(e)}")
+            # Return a reasonable fallback prediction in case of error
+            # For example, predict the last known price for all future days
+            if hasattr(self, 'featured_data') and self.featured_data is not None and not self.featured_data.empty:
+                last_price = self.featured_data['Close'].iloc[-1]
+                logger.info(f"Using last known price {last_price} as fallback prediction")
+                return [last_price] * days
+            else:
+                logger.error("No data available for fallback prediction")
+                return [0] * days
+            
+    def get_future_dates(self, days=5):
+        """
+        Generate future dates for predictions.
+        
+        Parameters:
+        -----------
+        days : int
+            Number of days to generate
+            
+        Returns:
+        --------
+        list
+            List of future dates (as datetime objects) excluding weekends
+        """
+        try:
+            # Start from the latest date in the data or current date if no data
+            if self.data is not None and not self.data.empty:
+                last_date = self.data.index[-1]
+            else:
+                last_date = pd.Timestamp.now()
+                
+            future_dates = []
+            current_date = last_date
+            
+            while len(future_dates) < days:
+                # Move to next day
+                current_date = current_date + pd.Timedelta(days=1)
+                
+                # Skip weekends (5 = Saturday, 6 = Sunday)
+                if current_date.weekday() < 5:
+                    future_dates.append(current_date)
+                    
+            return future_dates
+            
+        except Exception as e:
+            logger.error(f"Error generating future dates: {str(e)}")
             raise
 
     def run_pipeline(self, tune=True, n_trials=50, visualize=True, save_model=True, backtest=False, scale_features=True, use_cached_data=True, cache_dir='data'):

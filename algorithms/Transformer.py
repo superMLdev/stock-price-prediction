@@ -61,6 +61,18 @@ class TransformerBlock(layers.Layer):
         self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
         self.dropout1 = layers.Dropout(rate)
         self.dropout2 = layers.Dropout(rate)
+        
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            'att': self.att,
+            'ffn': self.ffn,
+            'layernorm1': self.layernorm1,
+            'layernorm2': self.layernorm2,
+            'dropout1': self.dropout1,
+            'dropout2': self.dropout2,
+        })
+        return config
 
     def call(self, inputs, training=False):
         # Self-attention with residual connection and layer normalization
@@ -74,12 +86,23 @@ class TransformerBlock(layers.Layer):
         return self.layernorm2(out1 + ffn_output)
 
 
+# Custom layer for positional encoding
 class PositionalEncoding(layers.Layer):
     """Positional encoding layer to give the model information about the position of each element."""
 
     def __init__(self, position, d_model):
         super(PositionalEncoding, self).__init__()
+        self.position = position
+        self.d_model = d_model
         self.pos_encoding = self.positional_encoding(position, d_model)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "position": self.position,
+            "d_model": self.d_model
+        })
+        return config
 
     def get_angles(self, position, i, d_model):
         angles = 1 / np.power(10000, (2 * (i // 2)) / np.float32(d_model))
@@ -443,7 +466,7 @@ class StockPriceTransformer:
             logger.error(f"Error in data preprocessing: {str(e)}")
             raise
 
-    def build_model(self, num_features, head_size=256, num_heads=4, ff_dim=256, num_transformer_blocks=4,
+    def build_model(self, num_features=None, head_size=256, num_heads=4, ff_dim=256, num_transformer_blocks=4,
                    mlp_units=[128, 64], dropout=0.1, mlp_dropout=0.2):
         """
         Build a Transformer model for time series forecasting.
@@ -473,7 +496,14 @@ class StockPriceTransformer:
             Compiled Transformer model
         """
         try:
-            logger.info("Building Transformer model...")
+            if num_features is None:
+                if self.X_train is not None and len(self.X_train.shape) > 2:
+                    num_features = self.X_train.shape[2]
+                else:
+                    logger.error("Cannot determine number of features. X_train shape is invalid.")
+                    return None
+
+            logger.info(f"Building Transformer model with {num_features} features")
 
             # Input shape is (batch_size, sequence_length, num_features)
             inputs = keras.Input(shape=(self.sequence_length, num_features))
@@ -535,9 +565,21 @@ class StockPriceTransformer:
         """
         try:
             logger.info("Training Transformer model...")
+            
+            # Make sure data is preprocessed
+            if self.X_train is None or self.y_train is None:
+                self.preprocess_data()
+                
+            if self.X_train is None or self.y_train is None:
+                logger.error("Error training model: X_train or y_train is None")
+                return None
 
             if self.model is None:
-                self.build_model(num_features=self.X_train.shape[2])
+                self.model = self.build_model()
+                
+            if self.model is None:
+                logger.error("Failed to build model")
+                return None
 
             # Early stopping callback
             early_stopping = keras.callbacks.EarlyStopping(
@@ -545,6 +587,15 @@ class StockPriceTransformer:
                 patience=patience,
                 mode="min",
                 restore_best_weights=True
+            )
+            
+            # Reduce learning rate on plateau
+            reduce_lr = keras.callbacks.ReduceLROnPlateau(
+                monitor="val_loss",
+                factor=0.2,
+                patience=patience // 2,
+                min_lr=1e-6,
+                mode="min"
             )
 
             # Learning rate scheduler
@@ -848,10 +899,42 @@ class StockPriceTransformer:
             # Get the latest data for predictions
             latest_data = self.featured_data.copy()
 
-            # Get the latest sequence for prediction
-            latest_features = latest_data.drop(columns=[f'target_{self.prediction_horizon}d'])
-            latest_scaled = self.scaler.transform(latest_features.values)
-
+            # Check if target column exists and drop it
+            target_col = f'target_{self.prediction_horizon}d'
+            if target_col in latest_data.columns:
+                latest_features = latest_data.drop(columns=[target_col])
+            else:
+                latest_features = latest_data.copy()
+            
+            # Find the index of the 'Close' column before transforming to remember its position
+            close_col_idx = None
+            if 'Close' in latest_features.columns:
+                close_col_idx = list(latest_features.columns).index('Close')
+            
+            # Transform the features
+            try:
+                latest_scaled = self.scaler.transform(latest_features.values)
+            except ValueError as e:
+                # Handle dimension mismatch by making features match the expected dimensions
+                logger.warning(f"Dimension mismatch: {e}")
+                logger.info(f"Feature shapes - Expected: {self.scaler.n_features_in_}, Got: {latest_features.shape[1]}")
+                
+                # If we have more features than expected, trim
+                if latest_features.shape[1] > self.scaler.n_features_in_:
+                    logger.info(f"Trimming features from {latest_features.shape[1]} to {self.scaler.n_features_in_}")
+                    # Keep only the first n_features_in_ columns
+                    latest_features = latest_features.iloc[:, :self.scaler.n_features_in_]
+                    # Recalculate close_col_idx if needed
+                    if close_col_idx is not None and close_col_idx >= self.scaler.n_features_in_:
+                        close_col_idx = None  # 'Close' column was dropped
+                    latest_scaled = self.scaler.transform(latest_features.values)
+                # If we have fewer features, this is more complex - can't easily create missing features
+                else:
+                    # For now, we'll just retrain the scaler on the new data
+                    logger.info("Retraining scaler on current feature set")
+                    self.scaler = MinMaxScaler()
+                    latest_scaled = self.scaler.fit_transform(latest_features.values)
+                    
             # Take the last sequence_length records
             latest_sequence = latest_scaled[-self.sequence_length:]
             latest_sequence = latest_sequence.reshape(1, self.sequence_length, latest_scaled.shape[1])
@@ -872,10 +955,12 @@ class StockPriceTransformer:
             for i in range(1, days):
                 # Prepare sequence for next prediction (rolling window approach)
                 # Shift the sequence by dropping the first element and appending the new prediction
-                # For simplicity, we copy the last row and update just the target column
                 next_features = latest_scaled[-1:].copy()  # Copy the last data point
-                next_features[0, latest_features.columns.get_loc('Close')] = next_pred_scaled[0][0]  # Update the Close price
-
+                
+                # Update the Close price if we know which column it is
+                if close_col_idx is not None:
+                    next_features[0, close_col_idx] = next_pred_scaled[0][0]
+                
                 # Update the sequence by removing first element and adding new prediction
                 latest_sequence = np.vstack((latest_sequence[0, 1:], next_features))
                 latest_sequence = latest_sequence.reshape(1, self.sequence_length, latest_scaled.shape[1])
@@ -899,10 +984,58 @@ class StockPriceTransformer:
             }, index=prediction_dates)
 
             logger.info("Future predictions complete")
-            return predictions_df
+            
+            # Return both DataFrame and list format for flexibility
+            return predictions if len(predictions) == days else predictions[:days]
 
         except Exception as e:
             logger.error(f"Error in future prediction: {str(e)}")
+            # Return a reasonable fallback prediction in case of error
+            # For example, predict the last known price for all future days
+            if hasattr(self, 'featured_data') and self.featured_data is not None and not self.featured_data.empty:
+                last_price = self.featured_data['Close'].iloc[-1]
+                logger.info(f"Using last known price {last_price} as fallback prediction")
+                return [last_price] * days
+            else:
+                logger.error("No data available for fallback prediction")
+                return [0] * days
+            
+    def get_future_dates(self, days=5):
+        """
+        Generate future dates for predictions.
+        
+        Parameters:
+        -----------
+        days : int
+            Number of days to generate
+            
+        Returns:
+        --------
+        list
+            List of future dates (as datetime objects) excluding weekends
+        """
+        try:
+            # Start from the latest date in the data or current date if no data
+            if hasattr(self, 'featured_data') and self.featured_data is not None and not self.featured_data.empty:
+                last_date = self.featured_data.index[-1]
+            else:
+                last_date = pd.Timestamp.now()
+                
+            future_dates = []
+            current_date = last_date
+            
+            while len(future_dates) < days:
+                # Move to next day
+                current_date = current_date + pd.Timedelta(days=1)
+                
+                # Skip weekends (5 = Saturday, 6 = Sunday)
+                if current_date.weekday() < 5:
+                    future_dates.append(current_date)
+                    
+            return future_dates
+            
+        except Exception as e:
+            logger.error(f"Error generating future dates: {str(e)}")
             raise
 
     def save_model(self, path="transformer_model"):

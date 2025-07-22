@@ -11,6 +11,10 @@ The LSTM model is a recurrent neural network architecture designed specifically 
 - **Memory Cells**: LSTM maintains information over long sequences
 - **Sequential Data Processing**: Processes time-ordered stock price data
 - **Feature Engineering**: Technical indicators and time-lagged features
+- **Dimension Mismatch Handling**: 
+  - Detects and handles feature count mismatches between training and prediction
+  - Automatically trims excess features when input data has more features than the model was trained with
+  - Provides robust logging of dimension adjustments for debugging
 - **Scalability**: Can be trained on various stock symbols and timeframes
 - **Trading Simulation**: Includes a simulated trading strategy based on predictions
 

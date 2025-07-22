@@ -18,6 +18,7 @@ Long Short-Term Memory (LSTM) networks are a type of recurrent neural network ca
 - **Data Fetching**: Automated data retrieval from Yahoo Finance
 - **Data Caching**: Efficient data storage with proper timezone handling
 - **Feature Engineering**: Comprehensive technical indicators and derived features
+- **Dimension Mismatch Handling**: Robust handling of feature count differences between training and prediction
 - **Model Training**: Optimized training pipelines for each model type
 - **Model Persistence**: Save and load trained models
 - **Prediction**: Make future predictions with trained models
@@ -91,12 +92,31 @@ future_predictions = predictor.predict_future(days=5)
 print(future_predictions)
 ```
 
-### Comparing Models
+### Command-line Interface
 
-You can compare all three models using the provided script:
+The project includes a convenient command-line interface for training models and making predictions:
 
 ```bash
-python compare_all_models.py
+# Train and predict using multiple models
+python train_and_predict.py --symbol AAPL --models xgboost,lstm,transformer --days 5 --train
+
+# Just make predictions using pre-trained models
+python train_and_predict.py --symbol MSFT --models xgboost,lstm --days 5
+
+# Load a specific model and make predictions
+python load_and_predict.py --symbol GOOGL --model xgboost --days 10
+```
+
+### Project Cleanup
+
+To remove unnecessary files like model checkpoints, visualizations, and logs:
+
+```bash
+# Clean up while keeping downloaded stock data
+python cleanup.py --keep-data
+
+# Clean up everything including downloaded stock data
+python cleanup.py
 ```
 
 This will generate performance metrics and visualizations comparing XGBoost, Transformer, and LSTM models.
@@ -238,3 +258,67 @@ Based on the data available up to July 18, 2025, here are the price predictions 
     python XGBoost.py
     ```
     You can customize the stock symbol, data period, and other parameters inside the `if __name__ == "__main__":` block in `XGBoost.py`.
+
+## CLI Tool for Training and Prediction
+
+The project includes a command-line interface tool for training models and making predictions.
+
+### Basic Usage
+
+```bash
+python train_and_predict.py --symbol AAPL --models xgboost
+```
+
+### Available Options
+
+```
+usage: train_and_predict.py [-h] --symbol SYMBOL [--models MODELS] [--train]
+                           [--period PERIOD] [--test-size TEST_SIZE] [--tune]
+                           [--trials TRIALS] [--days DAYS] [--plot]
+                           [--save-plot] [--save-csv] [--backtest]
+
+Train stock prediction models and make price predictions
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --symbol SYMBOL       Stock symbol (e.g., AAPL, MSFT, GOOG) (default: None)
+  --models MODELS       Models to use: xgboost, lstm, transformer, or all
+                        (comma-separated) (default: xgboost)
+  --train               Force training new models even if saved models exist
+                        (default: False)
+  --period PERIOD       Data period for training (e.g., 1y, 2y, 5y, max)
+                        (default: 5y)
+  --test-size TEST_SIZE
+                        Proportion of data to use for testing (0-1) (default:
+                        0.2)
+  --tune                Perform hyperparameter tuning (for XGBoost) (default:
+                        False)
+  --trials TRIALS       Number of hyperparameter tuning trials (default: 50)
+  --days DAYS           Number of days to predict (default: 5)
+  --plot                Show prediction plots (default: False)
+  --save-plot           Save prediction plots (default: False)
+  --save-csv            Save predictions to CSV file (default: False)
+  --backtest            Run backtesting on historical data (default: False)
+```
+
+### Examples
+
+1. Train and predict with all models:
+   ```bash
+   python train_and_predict.py --symbol MSFT --models all --days 7 --plot
+   ```
+
+2. Train a new XGBoost model with hyperparameter tuning:
+   ```bash
+   python train_and_predict.py --symbol GOOG --models xgboost --train --tune --trials 100
+   ```
+
+3. Use existing models to predict and save results:
+   ```bash
+   python train_and_predict.py --symbol AAPL --models xgboost,lstm --days 10 --save-csv --save-plot
+   ```
+
+4. Run backtesting on trained models:
+   ```bash
+   python train_and_predict.py --symbol TSLA --models all --backtest
+   ```
