@@ -163,34 +163,64 @@ class StockPriceTransformer:
         self.metrics = None
         self.history = None
 
-    def fetch_data(self):
+    def fetch_data(self, use_cached=False, cache_dir='data'):
         """
-        Fetch historical stock data from Yahoo Finance.
+        Fetch historical stock data from Yahoo Finance or from cache if available.
 
+        Parameters:
+        -----------
+        use_cached : bool
+            Whether to use cached data if available
+        cache_dir : str
+            Directory to store/retrieve cached data
+            
         Returns:
         --------
         pandas.DataFrame
             Raw OHLCV data
         """
         try:
-            logger.info(f"Fetching data for {self.symbol}...")
-            stock = yf.Ticker(self.symbol)
-            self.data = stock.history(period=self.period)
+            # Create cache path
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_path = os.path.join(cache_dir, f"{self.symbol}_{self.period}_data.csv")
+            
+            # Check if cached data exists and is requested
+            if os.path.exists(cache_path) and use_cached:
+                logging.info(f"Loading cached data for {self.symbol} from {cache_path}")
+                self.data = pd.read_csv(cache_path)
+                # Properly convert the index to datetime with timezone handling
+                self.data['Date'] = pd.to_datetime(self.data['Date'], utc=True)
+                self.data.set_index('Date', inplace=True)
+                # Remove timezone information for consistency with yfinance data
+                self.data.index = self.data.index.tz_localize(None)
+                logging.info(f"Loaded {len(self.data)} rows of data from cache")
+            else:
+                # Fetch data from Yahoo Finance
+                logging.info(f"Fetching data for {self.symbol} from Yahoo Finance...")
+                stock = yf.Ticker(self.symbol)
+                self.data = stock.history(period=self.period)
 
-            # Check if we got any data
-            if self.data.empty:
-                raise ValueError(f"No data returned for symbol {self.symbol}")
+                # Check if we got any data
+                if self.data.empty:
+                    raise ValueError(f"No data returned for symbol {self.symbol}")
 
-            # Handle missing values in the raw data
-            if self.data.isnull().sum().sum() > 0:
-                logger.warning(f"Found {self.data.isnull().sum().sum()} missing values in raw data")
-                self.data = self.data.fillna(method='ffill')
+                # Handle missing values
+                if self.data.isnull().sum().sum() > 0:
+                    logging.warning(f"Found {self.data.isnull().sum().sum()} missing values in raw data")
+                    self.data = self.data.fillna(method='ffill')
+                
+                # Save to cache if directory exists
+                if use_cached:
+                    # Reset index to include Date as a column, then save
+                    self.data.reset_index().to_csv(cache_path, index=False)
+                    logging.info(f"Saving {len(self.data)} rows of data to {cache_path}")
 
-            logger.info(f"Downloaded {len(self.data)} rows of data")
+                logging.info(f"Downloaded {len(self.data)} rows of data")
+            
             return self.data
 
         except Exception as e:
-            logger.error(f"Error fetching data: {str(e)}")
+            logging.error(f"Error fetching data: {str(e)}")
             raise
 
     def add_technical_indicators(self, df):
@@ -641,24 +671,38 @@ class StockPriceTransformer:
             ax2.grid(True, alpha=0.3)
 
             # Calculate prediction standard deviation for confidence bands
-            residuals = self.y_test_orig - self.y_pred_test
+            # Ensure shapes match for subtraction
+            logger.info(f"Before subtraction - y_test_orig shape: {self.y_test_orig.shape if hasattr(self.y_test_orig, 'shape') else len(self.y_test_orig)}, y_pred_test shape: {self.y_pred_test.shape if hasattr(self.y_pred_test, 'shape') else len(self.y_pred_test)}")
+            min_len_orig = min(len(self.y_test_orig), len(self.y_pred_test))
+            # Explicit conversion to numpy arrays and reshaping to ensure 1D arrays
+            y_test_trimmed = np.array(self.y_test_orig[:min_len_orig]).flatten()
+            y_pred_trimmed = np.array(self.y_pred_test[:min_len_orig]).flatten()
+            logger.info(f"After conversion - y_test_trimmed shape: {y_test_trimmed.shape}, y_pred_trimmed shape: {y_pred_trimmed.shape}")
+            
+            # Calculate residuals as a 1D array
+            residuals = y_test_trimmed - y_pred_trimmed
+            logger.info(f"Residuals shape after calculation: {residuals.shape}")
             residual_std = np.std(residuals)
 
             # Plot confidence bands (±2 standard deviations)
-            ax2.fill_between(test_dates,
-                            self.y_pred_test - 2*residual_std,
-                            self.y_pred_test + 2*residual_std,
+            ax2.fill_between(test_dates[:min_len_orig],
+                            y_pred_trimmed - 2*residual_std,
+                            y_pred_trimmed + 2*residual_std,
                             color='red', alpha=0.2, label='95% Confidence Interval')
 
             # 3. Residuals plot
             ax3 = plt.subplot(2, 2, 3)
-            ax3.scatter(self.y_pred_test, residuals, alpha=0.5, color='blue')
+            # Debug print statements for shapes
+            logger.info(f"y_pred_trimmed shape: {y_pred_trimmed.shape}, residuals shape: {residuals.shape}")
+            
+            # Use the pre-calculated residuals with matching shapes
+            ax3.scatter(y_pred_trimmed, residuals, alpha=0.5, color='blue')
             ax3.axhline(y=0, color='r', linestyle='-')
 
-            # Add trend line to residuals
-            z = np.polyfit(self.y_pred_test, residuals, 1)
+            # Add trend line to residuals (using only the valid data points)
+            z = np.polyfit(y_pred_trimmed, residuals, 1)
             p = np.poly1d(z)
-            ax3.plot(sorted(self.y_pred_test), p(sorted(self.y_pred_test)), "r--", alpha=0.8)
+            ax3.plot(sorted(y_pred_trimmed), p(sorted(y_pred_trimmed)), "r--", alpha=0.8)
 
             ax3.set_title('Residuals Plot', fontsize=14)
             ax3.set_xlabel('Predicted Values', fontsize=12)
@@ -667,13 +711,16 @@ class StockPriceTransformer:
 
             # 4. Error over time
             ax4 = plt.subplot(2, 2, 4)
-            abs_error = np.abs(self.y_test_orig - self.y_pred_test)
-            ax4.plot(test_dates, abs_error, color='blue', alpha=0.7)
+            abs_error = np.abs(residuals)  # Use pre-calculated residuals
+            logger.info(f"test_dates shape: {len(test_dates[:min_len_orig])}, abs_error shape: {len(abs_error)}")
+            
+            # Use the matched data
+            ax4.plot(test_dates[:min_len_orig], abs_error, color='blue', alpha=0.7)
 
             # Add trend line for error
             z = np.polyfit(range(len(abs_error)), abs_error, 1)
             p = np.poly1d(z)
-            ax4.plot(test_dates, p(range(len(abs_error))), "r--", linewidth=2)
+            ax4.plot(test_dates[:min_len_orig], p(range(len(abs_error))), "r--", linewidth=2)
 
             ax4.set_title('Prediction Error Over Time', fontsize=14)
             ax4.set_ylabel('Absolute Error', fontsize=12)
@@ -683,7 +730,10 @@ class StockPriceTransformer:
             plt.tight_layout()
 
             if save_path:
-                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                # Check if the save_path has a directory component
+                dir_path = os.path.dirname(save_path)
+                if dir_path:  # Only try to create directory if there's a directory part
+                    os.makedirs(dir_path, exist_ok=True)
                 plt.savefig(save_path, dpi=300, bbox_inches='tight')
                 logger.info(f"Visualizations saved to {save_path}")
 
@@ -706,12 +756,16 @@ class StockPriceTransformer:
 
             # Get test dates
             test_dates = self.featured_data.index[-(len(self.y_pred_test)):]
-
+            
+            # Ensure all arrays have the same length
+            min_len = min(len(test_dates), len(self.y_test_orig), len(self.y_pred_test))
+            logger.info(f"In trading simulation - test_dates: {len(test_dates)}, y_test_orig: {self.y_test_orig.shape}, y_pred_test: {self.y_pred_test.shape}")
+            
             # Create dataframe with predictions and actual values
             df_pred = pd.DataFrame({
-                'actual': self.y_test_orig.flatten(),
-                'predicted': self.y_pred_test.flatten()
-            }, index=test_dates)
+                'actual': self.y_test_orig.flatten()[:min_len],
+                'predicted': self.y_pred_test.flatten()[:min_len]
+            }, index=test_dates[:min_len])
 
             # Calculate returns
             df_pred['actual_return'] = df_pred['actual'].pct_change().fillna(0)
@@ -866,8 +920,8 @@ class StockPriceTransformer:
                 os.makedirs(path)
 
             # Save the model
-            self.model.save(f"{path}/model")
-            logger.info(f"Model saved to {path}/model")
+            self.model.save(f"{path}/model.keras")
+            logger.info(f"Model saved to {path}/model.keras")
 
             # Save the scalers
             joblib.dump(self.scaler, f"{path}/feature_scaler.joblib")
@@ -901,8 +955,8 @@ class StockPriceTransformer:
         """
         try:
             # Load the model
-            self.model = keras.models.load_model(f"{path}/model")
-            logger.info(f"Model loaded from {path}/model")
+            self.model = keras.models.load_model(f"{path}/model.keras")
+            logger.info(f"Model loaded from {path}/model.keras")
 
             # Load the scalers
             self.scaler = joblib.load(f"{path}/feature_scaler.joblib")
@@ -999,7 +1053,7 @@ if __name__ == "__main__":
     # Run the complete pipeline
     model, metrics = predictor.run_pipeline(
         train=True,                # Train a new model
-        epochs=100,                # Maximum number of epochs
+        epochs=15,                # Maximum number of epochs
         visualize=True,            # Generate visualizations
         save_model=True            # Save the model
     )

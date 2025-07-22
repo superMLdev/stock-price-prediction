@@ -1,0 +1,19 @@
+title: Stock Price Prediction
+description: Documentation for the Stock Price Prediction project using XGBoost, Transformer, and LSTM models
+theme: jekyll-theme-cayman
+
+# GitHub Pages settings
+repository: your-username/stock-price-prediction  # Replace with your actual GitHub username/repo
+baseurl: "/stock-price-prediction"  # The base URL for your GitHub Pages site
+
+# Build settings
+markdown: kramdown
+plugins:
+  - jekyll-seo-tag
+
+# Exclude from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - .gitignore

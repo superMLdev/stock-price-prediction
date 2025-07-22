@@ -1,31 +1,143 @@
-# stock-price-prediction
-
 # Stock Price Prediction Using Machine Learning
 
-This repository contains code for predicting stock prices using various machine learning algorithms in Python. The project demonstrates how to preprocess data, train different models, and evaluate their performance.
+This repository contains code for predicting stock prices using various machine learning models including XGBoost, Transformer, and LSTM. The project includes data fetching, feature engineering, model training, and prediction pipelines.
+
+## Models
+
+### XGBoost Model
+XGBoost is a gradient boosting framework that uses decision trees. It's known for its speed and performance. This implementation uses advanced feature engineering including technical indicators and provides caching functionality for efficient data handling.
+
+### Transformer Model
+Transformer models use the attention mechanism to capture temporal dependencies in time series data. This implementation leverages self-attention to focus on relevant parts of the historical price data.
+
+### LSTM Model
+Long Short-Term Memory (LSTM) networks are a type of recurrent neural network capable of learning order dependence in sequence prediction problems. The LSTM implementation in this project is especially suitable for time series forecasting like stock prices.
 
 ## Features
 
-- Data preprocessing and feature engineering
-- Implementation of multiple machine learning algorithms
-- Model evaluation metrics
-- Visualization of results
+- **Data Fetching**: Automated data retrieval from Yahoo Finance
+- **Data Caching**: Efficient data storage with proper timezone handling
+- **Feature Engineering**: Comprehensive technical indicators and derived features
+- **Model Training**: Optimized training pipelines for each model type
+- **Model Persistence**: Save and load trained models
+- **Prediction**: Make future predictions with trained models
+- **Visualization**: Comparative performance analysis and prediction visualization
+- **Evaluation**: Comprehensive metrics for model assessment
 
-## Requirements
-
-Make sure you have the following libraries installed:
+## Installation
 
 ```bash
-pip install pandas numpy scikit-learn matplotlib seaborn
+# Clone the repository
+git clone https://github.com/yourusername/stock-price-prediction.git
+cd stock-price-prediction
+
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirement.txt
 ```
 
 ## Usage
 
-1. Clone the repository:
-   ```bash
-   git clone
-   stock price prediction using different machine learning algorithms using python
-   ```
+### Training Models
+
+```python
+# XGBoost Model
+from algorithms.XGBoost import StockPricePredictor
+
+# Initialize predictor
+xgb_predictor = StockPricePredictor(
+    symbol="AAPL",
+    period="5y",
+    test_size=0.2
+)
+
+# Train model
+xgb_predictor.train_model()
+
+# Transformer Model
+from algorithms.Transformer import StockPriceTransformer
+
+# Initialize and train
+transformer = StockPriceTransformer(symbol="AAPL", period="5y")
+transformer.train_model()
+
+# LSTM Model
+from algorithms.LSTM import LSTMStockPredictor
+
+# Initialize and train
+lstm_predictor = LSTMStockPredictor(
+    symbol="AAPL",
+    period="5y",
+    test_size=0.2
+)
+lstm_predictor.run_pipeline()
+```
+
+### Making Predictions
+
+```python
+# Load saved models and make predictions
+from algorithms.XGBoost import StockPricePredictor
+
+# Load model
+predictor = StockPricePredictor(symbol="AAPL")
+predictor.load_model(load_pipeline=True)
+
+# Predict future prices
+future_predictions = predictor.predict_future(days=5)
+print(future_predictions)
+```
+
+### Comparing Models
+
+You can compare all three models using the provided script:
+
+```bash
+python compare_all_models.py
+```
+
+This will generate performance metrics and visualizations comparing XGBoost, Transformer, and LSTM models.
+
+## Documentation
+
+This project includes comprehensive documentation built with Jekyll. The documentation covers model architecture, usage examples, API reference, and model comparisons.
+
+### Building the Documentation
+
+To build and view the documentation locally:
+
+```bash
+# Navigate to the docs directory
+cd docs
+
+# Install Ruby dependencies (first time only)
+gem install bundler jekyll
+bundler install
+
+# Start the Jekyll server
+bundle exec jekyll serve
+```
+
+Once the server is running, you can access the documentation at `http://localhost:4000`.
+
+### Documentation Structure
+
+- **Home**: Overview of the project
+- **Usage Guide**: Step-by-step instructions
+- **Examples**: Practical examples with downloadable scripts
+- **Models**: Detailed explanation of each model
+  - XGBoost
+  - Transformer
+  - LSTM
+- **Model Comparison**: Performance metrics and analysis
+- **API Reference**: Complete reference of classes and methods
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 # XGBoost Stock Price Prediction Pipeline
 

@@ -1,0 +1,104 @@
+---
+---
+
+@import "jekyll-theme-cayman";
+
+/* Custom styles */
+.page-header {
+  background-color: #3498db;
+  background-image: linear-gradient(120deg, #3498db, #2c3e50);
+}
+
+/* Navigation */
+.container {
+  display: flex;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.site-nav {
+  width: 250px;
+  padding: 20px;
+  background-color: #f5f5f5;
+  border-radius: 5px;
+  margin-right: 20px;
+  margin-top: 20px;
+}
+
+.site-nav ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.site-nav ul li {
+  margin-bottom: 15px;
+}
+
+.site-nav ul li a {
+  display: block;
+  padding: 10px;
+  text-decoration: none;
+  color: #1e6bb8;
+  border-radius: 3px;
+  transition: background-color 0.3s ease;
+}
+
+.site-nav ul li a:hover {
+  background-color: #e9e9e9;
+  text-decoration: none;
+}
+
+.main-content {
+  flex: 1;
+  padding-top: 20px;
+}
+
+@media screen and (max-width: 800px) {
+  .container {
+    flex-direction: column;
+  }
+  
+  .site-nav {
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 20px;
+  }
+}
+
+/* Content styles */
+.main-content h1, .main-content h2, .main-content h3, .main-content h4, .main-content h5, .main-content h6 {
+  color: #2c3e50;
+}
+
+.main-content table {
+  width: 100%;
+  margin-bottom: 1rem;
+  border-collapse: collapse;
+}
+
+.main-content table th, .main-content table td {
+  padding: 0.5rem 1rem;
+  border: 1px solid #e9e9e9;
+}
+
+.main-content table th {
+  background-color: #f2f2f2;
+}
+
+.main-content table tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+/* Code blocks */
+.main-content pre {
+  background-color: #f6f8fa;
+  border-radius: 3px;
+  padding: 16px;
+}
+
+.main-content code {
+  background-color: #f6f8fa;
+  border-radius: 3px;
+  padding: 3px 5px;
+}

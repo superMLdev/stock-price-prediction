@@ -24,7 +24,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('../data/xgboost_stock_model.log')
+        logging.FileHandler('xgboost_stock_model.log')
     ]
 )
 logger = logging.getLogger(__name__)
@@ -88,9 +88,16 @@ class StockPricePredictor:
         self.metrics = None
         self.best_params = None
 
-    def fetch_data(self):
+    def fetch_data(self, use_cached=True, cache_dir='data'):
         """
-        Fetch historical stock data from Yahoo Finance.
+        Fetch historical stock data from Yahoo Finance or from local cache if available.
+
+        Parameters:
+        -----------
+        use_cached : bool
+            Whether to use cached data if available
+        cache_dir : str
+            Directory to store/retrieve cached data
 
         Returns:
         --------
@@ -98,20 +105,39 @@ class StockPricePredictor:
             Raw OHLCV data
         """
         try:
-            logger.info(f"Fetching data for {self.symbol}...")
-            stock = yf.Ticker(self.symbol)
-            self.data = stock.history(period=self.period)
+            # Create cache directory if it doesn't exist
+            os.makedirs(cache_dir, exist_ok=True)
+            
+            # Construct cache file path
+            cache_file = os.path.join(cache_dir, f"{self.symbol}_{self.period}_data.csv")
+            
+            # Check if cached data exists and is requested
+            if os.path.exists(cache_file) and use_cached:
+                logger.info(f"Loading cached data for {self.symbol} from {cache_file}")
+                self.data = pd.read_csv(cache_file, index_col=0)
+                # Convert index to datetime properly handling timezone issues
+                self.data.index = pd.DatetimeIndex(pd.to_datetime(self.data.index, utc=True).tz_localize(None))
+                logger.info(f"Loaded {len(self.data)} rows of data from cache")
+            else:
+                # Download data from Yahoo Finance
+                logger.info(f"Fetching data for {self.symbol} from Yahoo Finance...")
+                stock = yf.Ticker(self.symbol)
+                self.data = stock.history(period=self.period)
 
-            # Check if we got any data
-            if self.data.empty:
-                raise ValueError(f"No data returned for symbol {self.symbol}")
+                # Check if we got any data
+                if self.data.empty:
+                    raise ValueError(f"No data returned for symbol {self.symbol}")
 
-            # Handle missing values in the raw data
-            if self.data.isnull().sum().sum() > 0:
-                logger.warning(f"Found {self.data.isnull().sum().sum()} missing values in raw data")
-                self.data = self.data.fillna(method='ffill')
+                # Handle missing values in the raw data
+                if self.data.isnull().sum().sum() > 0:
+                    logger.warning(f"Found {self.data.isnull().sum().sum()} missing values in raw data")
+                    self.data = self.data.fillna(method='ffill')
 
-            logger.info(f"Downloaded {len(self.data)} rows of data")
+                # Save data to cache
+                logger.info(f"Saving {len(self.data)} rows of data to {cache_file}")
+                self.data.to_csv(cache_file)
+                logger.info(f"Downloaded {len(self.data)} rows of data")
+            
             return self.data
 
         except Exception as e:
@@ -788,7 +814,7 @@ class StockPricePredictor:
             logger.error(f"Error in backtesting: {str(e)}")
             raise
 
-    def save_model(self, filename="../data/xgboost_stock_model.json", save_pipeline=False):
+    def save_model(self, filename="xgboost_stock_model.json", save_pipeline=True, model_dir='models'):
         """
         Save the trained model and optionally the full pipeline.
 
@@ -798,15 +824,23 @@ class StockPricePredictor:
             Name of the file to save the model
         save_pipeline : bool
             Whether to save the full pipeline including scaler
+        model_dir : str
+            Directory to save model files
         """
         try:
+            # Create model directory if it doesn't exist
+            os.makedirs(model_dir, exist_ok=True)
+            
+            # Construct full model path
+            model_path = os.path.join(model_dir, filename)
+            
             # Save XGBoost model
-            self.model.save_model(filename)
-            logger.info(f"Model saved as '{filename}'")
+            self.model.save_model(model_path)
+            logger.info(f"Model saved as '{model_path}'")
 
             if save_pipeline:
                 # Save the full pipeline
-                pipeline_filename = "../models/xgboost_stock_model.joblib"
+                pipeline_filename = os.path.join(model_dir, f"{self.symbol}_pipeline.joblib")
 
                 pipeline_data = {
                     'model': self.model,
@@ -827,7 +861,7 @@ class StockPricePredictor:
             logger.error(f"Error saving model: {str(e)}")
             raise
 
-    def load_model(self, filename="../data/xgboost_stock_model.json", load_pipeline=False):
+    def load_model(self, filename="xgboost_stock_model.json", load_pipeline=False, model_dir='models'):
         """
         Load a trained model and optionally the full pipeline.
 
@@ -837,6 +871,8 @@ class StockPricePredictor:
             Name of the file to load the model from
         load_pipeline : bool
             Whether to load the full pipeline
+        model_dir : str
+            Directory where model files are stored
 
         Returns:
         --------
@@ -844,8 +880,18 @@ class StockPricePredictor:
             Loaded model or pipeline
         """
         try:
+            # Construct full model path
+            model_path = os.path.join(model_dir, filename)
+            
             if load_pipeline:
-                pipeline_filename = "../models/stock_prediction_pipeline.joblib"
+                # Try to find pipeline file for this symbol
+                pipeline_filename = os.path.join(model_dir, f"{self.symbol}_pipeline.joblib")
+                
+                if not os.path.exists(pipeline_filename):
+                    # Fall back to default pipeline file
+                    pipeline_filename = os.path.join(model_dir, "xgboost_stock_model.joblib")
+                
+                logger.info(f"Loading pipeline from '{pipeline_filename}'")
                 pipeline_data = joblib.load(pipeline_filename)
 
                 self.model = pipeline_data['model']
@@ -860,16 +906,17 @@ class StockPricePredictor:
                 logger.info(f"Full pipeline loaded from '{pipeline_filename}'")
                 return pipeline_data
             else:
+                logger.info(f"Loading model from '{model_path}'")
                 self.model = xgb.XGBRegressor()
-                self.model.load_model(filename)
-                logger.info(f"Model loaded from '{filename}'")
+                self.model.load_model(model_path)
+                logger.info(f"Model loaded from '{model_path}'")
                 return self.model
 
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
             raise
 
-    def predict_future(self, days=5):
+    def predict_future(self, days=5, use_cached_data=True, cache_dir='data'):
         """
         Make predictions for future days based on the latest data.
 
@@ -877,6 +924,10 @@ class StockPricePredictor:
         -----------
         days : int
             Number of days to predict into the future
+        use_cached_data : bool
+            Whether to use cached data if available
+        cache_dir : str
+            Directory to store/retrieve cached data
 
         Returns:
         --------
@@ -890,17 +941,31 @@ class StockPricePredictor:
                 raise ValueError("Model not trained. Please train the model first.")
 
             # Get the latest data
-            latest_data = self.fetch_data()
+            latest_data = self.fetch_data(use_cached=use_cached_data, cache_dir=cache_dir)
 
             # Engineer features for the latest data
             latest_features = self.engineer_features()
+
+            # Store column names if self.X is None (happens when model was loaded without training)
+            if self.X is None and hasattr(self, 'model') and self.model is not None:
+                # Get feature names from the model
+                feature_names = self.model.get_booster().feature_names
+                if feature_names:
+                    logger.info(f"Using {len(feature_names)} feature names from loaded model")
+                else:
+                    # Use all features from latest_features as a fallback
+                    feature_names = latest_features.columns.tolist()
+                    logger.info(f"Using {len(feature_names)} features from current data")
+            else:
+                # Normal case - we have self.X from training
+                feature_names = self.X.columns.tolist()
 
             predictions = []
             current_data = latest_features.iloc[-1:].copy()
 
             for i in range(days):
                 # Prepare features for prediction
-                pred_features = current_data[self.X.columns]
+                pred_features = current_data[feature_names]
 
                 # Scale features if necessary
                 if self.scaler:
@@ -953,6 +1018,8 @@ class StockPricePredictor:
 
             # Create DataFrame with predictions
             predictions_df = pd.DataFrame(predictions)
+            # Convert dates to timezone-aware format for consistency
+            predictions_df['Date'] = pd.to_datetime(predictions_df['Date'], utc=True)
             predictions_df.set_index('Date', inplace=True)
 
             logger.info("Future predictions complete")
@@ -962,7 +1029,7 @@ class StockPricePredictor:
             logger.error(f"Error in future prediction: {str(e)}")
             raise
 
-    def run_pipeline(self, tune=True, n_trials=50, visualize=True, save_model=True, backtest=False, scale_features=True):
+    def run_pipeline(self, tune=True, n_trials=50, visualize=True, save_model=True, backtest=False, scale_features=True, use_cached_data=True, cache_dir='data'):
         """
         Run the complete pipeline.
 
@@ -980,6 +1047,10 @@ class StockPricePredictor:
             Whether to perform backtesting
         scale_features : bool
             Whether to scale features
+        use_cached_data : bool
+            Whether to use cached data if available
+        cache_dir : str
+            Directory to store/retrieve cached data
 
         Returns:
         --------
@@ -990,7 +1061,7 @@ class StockPricePredictor:
             logger.info(f"Starting prediction pipeline for {self.symbol}...")
 
             # Step 1: Fetch data
-            self.fetch_data()
+            self.fetch_data(use_cached=use_cached_data, cache_dir=cache_dir)
 
             # Step 2: Engineer features
             self.engineer_features()
@@ -1046,10 +1117,16 @@ if __name__ == "__main__":
         visualize=True,            # Generate visualizations
         save_model=True,           # Save the model
         backtest=True,             # Perform backtesting
-        scale_features=True        # Scale the features
+        scale_features=True,       # Scale the features
+        use_cached_data=True,      # Use cached data if available
+        cache_dir='data'           # Directory to store/retrieve cached data
     )
 
     # Make predictions for the next 5 days
-    future_predictions = predictor.predict_future(days=5)
+    future_predictions = predictor.predict_future(
+        days=5,
+        use_cached_data=True,
+        cache_dir='data'
+    )
     print("\nPredictions for the next 5 trading days:")
     print(future_predictions)

@@ -56,10 +56,16 @@ cover/
 *.pot
 
 # Django stuff:
-*.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+
+# Log files
+*.log
+lstm_*.png
+xgboost_*.png
+transformer_*.png
+model_comparison*.png
 
 # Flask stuff:
 instance/
